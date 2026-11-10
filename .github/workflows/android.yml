@@ -3,16 +3,12 @@ name: Build Android APK
 on:
   push:
     branches: [ main ]
-    paths: [ 'shorouk-android/**', '.github/workflows/android.yml' ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: shorouk-android
     steps:
       - uses: actions/checkout@v5
 
@@ -21,20 +17,34 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      - name: Find the Android project
+        run: |
+          for z in *.zip; do
+            if [ -f "$z" ]; then unzip -q -o "$z" -d _android_zip; fi
+          done
+          G=$(find . -name gradlew -not -path "*/node_modules/*" | head -n 1)
+          if [ -z "$G" ]; then
+            echo "::error::Android project not found. Upload the zip file to the repository root."
+            ls -la
+            exit 1
+          fi
+          chmod +x "$G"
+          echo "ANDROID_DIR=$(dirname "$G")" >> "$GITHUB_ENV"
+          echo "Found project in: $(dirname "$G")"
+
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
-      - name: Make gradlew executable
-        run: chmod +x gradlew
-
       - name: Unit tests
+        working-directory: ${{ env.ANDROID_DIR }}
         run: ./gradlew --no-daemon testDebugUnitTest
 
       - name: Build release APK
+        working-directory: ${{ env.ANDROID_DIR }}
         run: ./gradlew --no-daemon assembleRelease
 
       - uses: actions/upload-artifact@v4
         with:
           name: shorouk-calculator-apk
-          path: shorouk-android/app/build/outputs/apk/release/*.apk
+          path: ${{ env.ANDROID_DIR }}/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
